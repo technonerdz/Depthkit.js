@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 module.exports = function(strings) {
   if (typeof strings === 'string') strings = [strings]
   var exprs = [].slice.call(arguments,1)
@@ -17,16 +17,22 @@ Object.defineProperty(exports, "__esModule", {
     value: true
 });
 
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
+
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-//DepthKit.js plugin for Three.js
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+//Depthkit.js plugin for Three.js
 
 /**
  * Originally written by
  * @author mrdoob / http://mrdoob.com
- * @modified by obviousjim / http://specular.cc
+ * @modified by obviousjim @ Scatter / http://scatter.nyc
  */
 
 /* Made into a plugin after the completion of the Tzina project by
@@ -34,229 +40,318 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
  *  @modified by avnerus / http://avner.js.org
  */
 
-//Three.js - for easy debugging and testing, should be excluded from the build
-// import * as THREE from 'three'
-
 // bundling of GLSL code
 var glsl = require('glslify');
 
-//For building the geomtery
-var VERTS_WIDE = 256;
-var VERTS_TALL = 256;
+var Depthkit = function (_THREE$Object3D) {
+    _inherits(Depthkit, _THREE$Object3D);
 
-var DepthKit = function () {
-    function DepthKit() {
-        var _type = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 'mesh';
+    function Depthkit() {
+        _classCallCheck(this, Depthkit);
 
-        var _props = arguments[1];
+        var _this = _possibleConstructorReturn(this, (Depthkit.__proto__ || Object.getPrototypeOf(Depthkit)).call(this));
 
-        var _this = this;
+        _this.manager = new THREE.LoadingManager();
 
-        var _movie = arguments[2];
-        var _poster = arguments[3];
+        //video object created in the constructor so user may attach events
+        _this.video = document.createElement('video');
+        _this.video.id = 'depthkit-video';
+        _this.video.crossOrigin = 'anonymous';
+        _this.video.setAttribute('crossorigin', 'anonymous');
+        _this.video.setAttribute('webkit-playsinline', 'webkit-playsinline');
+        _this.video.setAttribute('playsinline', 'playsinline');
+        _this.video.autoplay = false;
+        _this.video.loop = false;
 
-        _classCallCheck(this, DepthKit);
+        ///default value
+        _this.meshScalar = 2.0;
 
-        //Load the shaders
-        var rgbdFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\n\nuniform float uvdy;\nuniform float uvdx;\n\nvarying float visibility;\nvarying vec2 vUv;\nvarying vec3 vNormal;\nvarying vec3 vPos;\n\nvoid main() {\n\n    if ( visibility < 0.9 ) discard;\n\n    vec4 color = texture2D(map, vUv);\n    color.w = opacity;\n\n    gl_FragColor = color;\n    \n}"]);
-        var rgbdVert = glsl(["#define GLSLIFY 1\nuniform float mindepth;\nuniform float maxdepth;\n\nuniform float width;\nuniform float height;\n\nuniform bool isPoints;\nuniform float pointSize;\n\nuniform float time;\n\nuniform vec2 focalLength;\nuniform vec2 principalPoint;\nuniform vec2 imageDimensions;\nuniform vec4 crop;\nuniform vec2 meshDensity;\nuniform mat4 extrinsics;\n\nvarying vec3 vNormal;\nvarying vec3 vPos;\n\nuniform sampler2D map;\n\nvarying float visibility;\nvarying vec2 vUv;\n\nconst float _DepthSaturationThreshhold = 0.5; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.5; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + _Epsilon)), d / (q.x + _Epsilon), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.g > _DepthSaturationThreshhold && depthsamplehsv.b > _DepthBrightnessThreshold ? depthsamplehsv.r : 0.0;\n}\n\nvoid main() {\n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n\n    vec2 centerpix = texSize.xy * .5;\n    vec2 textureStep = 1.0 / meshDensity;\n    vec2 basetex = floor(position.xy * textureStep * texSize.zw) * texSize.xy;\n    vec2 imageCoordinates = crop.xy + (basetex * crop.zw);\n    basetex.y = 1.0 - basetex.y;\n\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5) + centerpix;\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5) + centerpix;\n\n    vUv = colorTexCoord;\n    vPos = (modelMatrix * vec4(position, 1.0 )).xyz;\n    vNormal = normalMatrix * normal;\n\n    //check neighbors\n    //texture coords come in as [0.0 - 1.0] for this whole plane\n    float depth = depthForPoint(depthTexCoord);\n\n    float neighborDepths[8];\n    neighborDepths[0] = depthForPoint(depthTexCoord + vec2(0.0,  textureStep.y));\n    neighborDepths[1] = depthForPoint(depthTexCoord + vec2(textureStep.x, 0.0));\n    neighborDepths[2] = depthForPoint(depthTexCoord + vec2(0.0, -textureStep.y));\n    neighborDepths[3] = depthForPoint(depthTexCoord + vec2(-textureStep.x, 0.0));\n    neighborDepths[4] = depthForPoint(depthTexCoord + vec2(-textureStep.x, -textureStep.y));\n    neighborDepths[5] = depthForPoint(depthTexCoord + vec2(textureStep.x,  textureStep.y));\n    neighborDepths[6] = depthForPoint(depthTexCoord + vec2(textureStep.x, -textureStep.y));\n    neighborDepths[7] = depthForPoint(depthTexCoord + vec2(-textureStep.x,  textureStep.y));\n\n    visibility = 1.0;\n    int numDudNeighbors = 0;\n    //search neighbor verts in order to see if we are near an edge\n    //if so, clamp to the surface closest to us\n    if (depth < _Epsilon || (1.0 - depth) < _Epsilon)\n    {\n        // float depthDif = 1.0;\n        float nearestDepth = 1.0;\n        for (int i = 0; i < 8; i++)\n        {\n            float depthNeighbor = neighborDepths[i];\n            if (depthNeighbor >= _Epsilon && (1.0 - depthNeighbor) > _Epsilon)\n            {\n                // float thisDif = abs(nearestDepth - depthNeighbor);\n                if (depthNeighbor < nearestDepth)\n                {\n                    // depthDif = thisDif;\n                    nearestDepth = depthNeighbor;\n                }\n            }\n            else\n            {\n                numDudNeighbors++;\n            }\n        }\n\n        depth = nearestDepth;\n        visibility = 0.8;\n\n        // blob filter\n        if (numDudNeighbors > 6)\n        {\n            visibility = 0.0;\n        }\n    }\n\n    // internal edge filter\n    float maxDisparity = 0.0;\n    for (int i = 0; i < 8; i++)\n    {\n        float depthNeighbor = neighborDepths[i];\n        if (depthNeighbor >= _Epsilon && (1.0 - depthNeighbor) > _Epsilon)\n        {\n            maxDisparity = max(maxDisparity, abs(depth - depthNeighbor));\n        }\n    }\n    visibility *= 1.0 - maxDisparity;\n\n    float z = depth * (maxdepth - mindepth) + mindepth;\n    vec4 worldPos = extrinsics * vec4((imageCoordinates * imageDimensions - principalPoint) * z / focalLength, z, 1.0);\n    worldPos.w = 1.0;\n\n    gl_Position = projectionMatrix * modelViewMatrix * worldPos;\n}"]);
-
-        //Crate video element
-        this.video = document.createElement('video');
-
-        //Set the crossOrigin and props
-        this.video.id = 'depthkit-video';
-        this.video.crossOrigin = 'anonymous';
-        this.video.setAttribute('crossorigin', 'anonymous');
-        this.video.setAttribute('webkit-playsinline', 'webkit-playsinline');
-        this.video.setAttribute('playsinline', 'playsinline');
-        this.video.src = _movie;
-        this.video.poster = _poster;
-
-        //Don't autostart don't loop
-        this.video.autoplay = true;
-        this.video.loop = false;
-        this.video.muted = true;
-        this.video.load();
-
-        //Create a video texture to be passed to the shader
-        this.videoTexture = new THREE.VideoTexture(this.video);
-        this.videoTexture.minFilter = THREE.NearestFilter;
-        this.videoTexture.magFilter = THREE.LinearFilter;
-        this.videoTexture.format = THREE.RGBFormat;
-        this.videoTexture.generateMipmaps = false;
-
-        //Manages loading of assets internally
-        this.manager = new THREE.LoadingManager();
-
-        //JSON props once loaded
-        this.props;
-
-        //Geomtery
-        if (!DepthKit.geo) {
-            DepthKit.buildGeomtery();
+        Depthkit._instanceMesh = null;
+        if (Depthkit._geometryLookup == null) {
+            Depthkit._geometryLookup = {};
         }
-
-        //Material
-        this.material = new THREE.ShaderMaterial({
-            uniforms: {
-                "map": {
-                    type: "t",
-                    value: this.videoTexture
-                },
-                "time": {
-                    type: "f",
-                    value: 0.0
-                },
-                "mindepth": {
-                    type: "f",
-                    value: 0.0
-                },
-                "maxdepth": {
-                    type: "f",
-                    value: 0.0
-                },
-                "meshDensity": {
-                    value: new THREE.Vector2(VERTS_WIDE, VERTS_TALL)
-                },
-                "focalLength": {
-                    value: new THREE.Vector2(1, 1)
-                },
-                "principalPoint": {
-                    value: new THREE.Vector2(1, 1)
-                },
-                "imageDimensions": {
-                    value: new THREE.Vector2(512, 828)
-                },
-                "extrinsics": {
-                    value: new THREE.Matrix4()
-                },
-                "crop": {
-                    value: new THREE.Vector4(0, 0, 1, 1)
-                },
-                "width": {
-                    type: "f",
-                    value: 0
-                },
-                "height": {
-                    type: "f",
-                    value: 0
-                },
-                "opacity": {
-                    type: "f",
-                    value: 1.0
-                },
-                "isPoints": {
-                    type: "b",
-                    value: false
-                },
-                "pointSize": {
-                    type: "f",
-                    value: 3.0
-                }
-            },
-            vertexShader: rgbdVert,
-            fragmentShader: rgbdFrag,
-            transparent: true
-        });
-
-        //Make the shader material double sided
-        this.material.side = THREE.DoubleSide;
-
-        //Switch a few things based on selected rendering type and create the mesh
-        switch (_type) {
-            case 'wire':
-                this.material.wireframe = true;
-                this.mesh = new THREE.Mesh(DepthKit.geo, this.material);
-                break;
-
-            case 'points':
-                this.material.uniforms.isPoints.value = true;
-                this.mesh = new THREE.Points(DepthKit.geo, this.material);
-                break;
-
-            default:
-                this.mesh = new THREE.Mesh(DepthKit.geo, this.material);
-                break;
-        }
-
-        //Make sure to read the config file as json (i.e JSON.parse)
-        this.jsonLoader = new THREE.FileLoader(this.manager);
-        this.jsonLoader.setResponseType('json');
-        this.jsonLoader.load(_props,
-        // Function when json is loaded
-        function (data) {
-            _this.props = data;
-            // console.log(this.props);
-
-            //Update the shader based on the properties from the JSON
-            _this.material.uniforms.width.value = _this.props.textureWidth;
-            _this.material.uniforms.height.value = _this.props.textureHeight;
-            _this.material.uniforms.mindepth.value = _this.props.nearClip;
-            _this.material.uniforms.maxdepth.value = _this.props.farClip;
-            _this.material.uniforms.focalLength.value = _this.props.depthFocalLength;
-            _this.material.uniforms.principalPoint.value = _this.props.depthPrincipalPoint;
-            _this.material.uniforms.imageDimensions.value = _this.props.depthImageSize;
-            _this.material.uniforms.crop.value = _this.props.crop;
-
-            var ex = _this.props.extrinsics;
-            _this.material.uniforms.extrinsics.value.set(ex["e00"], ex["e10"], ex["e20"], ex["e30"], ex["e01"], ex["e11"], ex["e21"], ex["e31"], ex["e02"], ex["e12"], ex["e22"], ex["e32"], ex["e03"], ex["e13"], ex["e23"], ex["e33"]);
-
-            //Create the collider
-            var boxGeo = new THREE.BoxGeometry(_this.props.boundsSize.x, _this.props.boundsSize.y, _this.props.boundsSize.z);
-            var boxMat = new THREE.MeshBasicMaterial({
-                color: 0xffff00,
-                wireframe: true
-            });
-
-            _this.collider = new THREE.Mesh(boxGeo, boxMat);
-
-            _this.collider.visible = false;
-            _this.mesh.add(_this.collider);
-
-            //Temporary collider positioning fix - // TODO: fix that with this.props.boundsCenter
-            THREE.SceneUtils.detach(_this.collider, _this.mesh, _this.mesh.parent);
-            _this.collider.position.set(0, 1, 0);
-        });
-
-        //Make sure we don't hide the character - this helps the objects in webVR
-        this.mesh.frustumCulled = false;
-
-        //Apend the object to the Three Object3D that way it's accsesable from the instance
-        this.mesh.depthkit = this;
-        this.mesh.name = 'depthkit';
-
-        //Return the object3D so it could be added to the scene
-        return this.mesh;
+        return _this;
     }
 
-    _createClass(DepthKit, [{
-        key: 'setPointSize',
+    _createClass(Depthkit, [{
+        key: 'setMeshScalar',
+        value: function setMeshScalar(_scalar) {
+            //
+            // _scalar - valid values 0, 1, 2, 3 
+            // 
+            if (_scalar > 3) _scalar = 3;
+            if (_scalar < 0) _scalar = 0;
+            // meshScalar values are 1, 2 ,4, 8 
+            // This ensures that meshScalar is never set to 0 
+            // and that vertex steps (computed in buildGeometry) are always pixel aligned.
+            var newScalar = Math.pow(2, Math.floor(_scalar));
+            if (this.meshScalar != newScalar) {
+                this.meshScalar = newScalar;
+                this.buildGeometry();
+            }
+        }
+    }, {
+        key: 'buildGeometry',
+        value: function buildGeometry() {
 
+            var vertsWide = this.props.textureWidth / this.meshScalar + 1;
+            var vertsTall = this.props.textureHeight / this.meshScalar + 1;
 
-        /*
-        * Render related methods
-        */
-        value: function setPointSize(size) {
-            if (this.material.uniforms.isPoints.value) {
-                this.material.uniforms.pointSize.value = size;
+            var instanceGeometry = void 0;
+
+            if (this.geometryBufferExistsInLookup(vertsWide * vertsTall)) {
+                instanceGeometry = Depthkit._geometryLookup[vertsWide * vertsTall];
             } else {
-                console.warn('Can not set point size because the current character is not set to render points');
+                instanceGeometry = this.createGeometryBuffer(vertsWide, vertsTall);
+                Depthkit._geometryLookup[vertsWide * vertsTall] = instanceGeometry;
+            }
+
+            if (this._instanceMesh == null) {
+                this._instanceMesh = new THREE.Mesh(instanceGeometry, this._material);
+                this._instanceMesh.frustumCulled = false;
+
+                // create pivot and parent the mesh to the pivot
+                //
+                //pivot creation 
+                //
+                var pivot = new THREE.Object3D();
+                pivot.frustumCulled = false;
+                pivot.position.z = -((this.props.farClip - this.props.nearClip) / 2.0) - this.props.nearClip;
+
+                this.add(pivot);
+                pivot.add(this._instanceMesh);
+            } else {
+                this._instanceMesh.geometry = instanceGeometry;
+            }
+        }
+    }, {
+        key: 'createGeometryBuffer',
+        value: function createGeometryBuffer(_vertsWide, _vertsTall) {
+            var vertexStep = new THREE.Vector2(this.meshScalar / this.props.textureWidth, this.meshScalar / this.props.textureHeight);
+            var _geometry = new THREE.Geometry();
+
+            for (var y = 0; y < _vertsTall; y++) {
+                for (var x = 0; x < _vertsWide; x++) {
+                    _geometry.vertices.push(new THREE.Vector3(x * vertexStep.x, y * vertexStep.y, 0));
+                }
+            }
+
+            for (var _y = 0; _y < _vertsTall - 1; _y++) {
+                for (var _x = 0; _x < _vertsWide - 1; _x++) {
+                    _geometry.faces.push(new THREE.Face3(_x + _y * _vertsWide, _x + (_y + 1) * _vertsWide, _x + 1 + _y * _vertsWide));
+
+                    _geometry.faces.push(new THREE.Face3(_x + 1 + _y * _vertsWide, _x + (_y + 1) * _vertsWide, _x + 1 + (_y + 1) * _vertsWide));
+                }
+            }
+
+            return _geometry;
+        }
+    }, {
+        key: 'geometryBufferExistsInLookup',
+        value: function geometryBufferExistsInLookup(meshWxH) {
+            for (var lookupKey in Object.keys(Depthkit._geometryLookup)) {
+                if (meshWxH === lookupKey) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }, {
+        key: 'buildMaterial',
+        value: function buildMaterial() {
+
+            //Load the shaders
+            var rgbdFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\n\nvarying vec2 vUv;\nvarying vec2 vUvDepth;\nvarying vec4 vPos;\nfloat _DepthBrightnessThreshold = 0.8;  // per-pixel brightness threshold, used to refine edge geometry from eroneous edge depth samples\nfloat _SheerAngleThreshold = 0.04;       // per-pixel internal edge threshold (sheer angle of geometry at that pixel)\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{   \n    vec2 centerpix = vec2(.5/width, .5/height);\n    texturePoint += centerpix;\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\nvoid main()\n{\n    vec2 centerpix = vec2(.5/width, .5/height);\n    vec2 centerDepthSampleCoord = vUvDepth - mod(vUvDepth, vec2(1.0/width, 1.0/height) ); // clamp to start of pixel\n\n    float depth = depthForPoint(centerDepthSampleCoord);\n    // we filter the _SheerAngleThreshold value on CPU so that we have an ease in over the 0..1 range, removing internal geometry at grazing angles\n    // we also apply near and far clip clipping, the far clipping plane is pulled back to remove geometry wrapped to the far plane from the near plane\n    //convert back from worldspace to local space\n    vec4 localPos = vPos;\n    //convert to homogenous coordinate space\n    localPos.xy /= localPos.z;\n    //find local space normal for triangle surface\n    vec3 dx = dFdx(localPos.xyz);\n    vec3 dy = dFdy(localPos.xyz);\n    vec3 n = normalize(cross(dx, dy));\n    \n    // make sure to handle dot product of the whole hemisphere by taking the absolute of range -1 to 0 to 1\n    float sheerAngle = abs(dot(n, vec3(0.0, 0.0, 1.0)));\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    vec2 colorTexCoord = clamp(vUv, vec2(0.0, 0.5) + centerpix, vec2(1.0, 1.0) - centerpix);\n    vec4 color = texture2D(map, colorTexCoord);\n    color.w = opacity;\n\n    //color.xyz = vPos.xyz * 0.5 + 0.5;\n    //color.xyz = n.xyz * 0.5 + 0.5;\n    //color.xyz = vec3(sheerAngle, sheerAngle, sheerAngle);\n\n    if ( depth <        CLIP_EPSILON  ||\n         depth > (1.0 - CLIP_EPSILON) ||\n         sheerAngle < (_SheerAngleThreshold + FLOAT_EPS))\n    {\n        discard;\n    }\n\n    gl_FragColor = color;\n}"]);
+            var rgbdVert = glsl(["#define GLSLIFY 1\nuniform float nearClip;\nuniform float farClip;\nuniform float width;\nuniform float height;\nuniform bool isPoints;\nuniform float pointSize;\nuniform float time;\nuniform vec2 focalLength;\nuniform vec2 principalPoint;\nuniform vec2 imageDimensions;\nuniform vec4 crop;\nuniform float meshScalar;\nuniform mat4 extrinsics;\nuniform sampler2D map;\nvarying vec4 vPos;\nvarying vec2 vUv;\nvarying vec2 vUvDepth;\n\nfloat _DepthBrightnessThreshold = 0.5;  // per-pixel brightness threshold, used to refine edge geometry from eroneous edge depth samples\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{   \n    vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\nvoid main()\n{\n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n    vec2 basetex = position.xy;\n\n    // we align our depth pixel centers with the center of each quad, so we do not require a half pixel offset\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5);\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5);\n\n    // coordinates are always aligned to a multiple of texture sample widths, no need to clamp to topleft\n    // unlike per-pixel sampling.\n    float depth = depthForPoint(depthTexCoord);\n    if (depth <= CLIP_EPSILON || ((1.0 - CLIP_EPSILON) >= depth))\n    {\n        // we use a 3x3 kernel, so sampling 8 neighbors\n        //vec2 textureStep = 1.0 / meshScalar;\n        vec2 textureStep = vec2(texSize.x * meshScalar, texSize.y * meshScalar);   // modify our texture step \n        \n        vec2 neighbors[8];\n        neighbors[0] = vec2(-textureStep.x, -textureStep.y);\n        neighbors[1] = vec2(0, -textureStep.y);\n        neighbors[2] = vec2(textureStep.x, -textureStep.y);\n        neighbors[3] = vec2(-textureStep.x, 0);\n        neighbors[4] = vec2(textureStep.x, 0);\n        neighbors[5] = vec2(-textureStep.x, textureStep.y);\n        neighbors[6] = vec2(0, textureStep.y);\n        neighbors[7] = vec2(textureStep.x, textureStep.y);\n        \n        // if this depth sample is not valid then check neighbors\n        int validNeighbors = 0;\n        float maxDepth = 0.0;\n        for (int i = 0; i < 8; i++)\n        {\n            float depthNeighbor = depthForPoint(depthTexCoord + neighbors[i]);\n            maxDepth = max(maxDepth, depthNeighbor);\n            validNeighbors += (depthNeighbor > CLIP_EPSILON || ((1.0 - CLIP_EPSILON) < depthNeighbor)) ? 1 : 0;\n        }\n\n        // clip to near plane if we and all our neighbors are invalid\n        depth = validNeighbors > 0 ? maxDepth : 0.0;\n    }\n\n    vec2 imageCoordinates = crop.xy + (basetex * crop.zw);\n    float z = depth * (farClip - nearClip) + nearClip; // transform from 0..1 space to near-far space Z\n    vec2 ortho = imageCoordinates * imageDimensions - principalPoint;\n    vec2 proj = ortho * z / focalLength;\n    vec4 worldPos = extrinsics *  vec4(proj.xy, z, 1.0);\n    worldPos.w = 1.0;\n    gl_Position =  projectionMatrix * modelViewMatrix * worldPos;\n    vUv = colorTexCoord;\n    vUvDepth = depthTexCoord;\n    vPos = worldPos;//gl_Position.xyz;//(modelMatrix * vec4(gl_Position.xyz, 1.0)).xyz;//(modelMatrix * vec4(position, 1.0)).xyz;\n}\n"]);
+
+            var extrinsics = new THREE.Matrix4();
+            var ex = this.props.extrinsics;
+            extrinsics.set(ex["e00"], ex["e10"], ex["e20"], ex["e30"], ex["e01"], ex["e11"], ex["e21"], ex["e31"], ex["e02"], ex["e12"], ex["e22"], ex["e32"], ex["e03"], ex["e13"], ex["e23"], ex["e33"]);
+
+            var extrinsicsInv = new THREE.Matrix4();
+            extrinsicsInv.getInverse(extrinsics);
+
+            //Material
+            this._material = new THREE.ShaderMaterial({
+                uniforms: {
+                    "map": {
+                        type: "t",
+                        value: this.videoTexture
+                    },
+                    "time": {
+                        type: "f",
+                        value: 0.0
+                    },
+                    "nearClip": {
+                        type: "f",
+                        value: this.props.nearClip
+                    },
+                    "farClip": {
+                        type: "f",
+                        value: this.props.farClip
+                    },
+                    "meshScalar": {
+                        type: "f",
+                        value: this.meshScalar
+                    },
+                    "focalLength": {
+                        value: this.props.depthFocalLength
+                    },
+                    "principalPoint": {
+                        value: this.props.depthPrincipalPoint
+                    },
+                    "imageDimensions": {
+                        value: this.props.depthImageSize
+                    },
+                    "extrinsics": {
+                        value: extrinsics
+                    },
+                    "extrinsicsInv": {
+                        value: extrinsicsInv
+                    },
+                    "crop": {
+                        value: this.props.crop
+                    },
+                    "width": {
+                        type: "f",
+                        value: this.props.textureWidth
+                    },
+                    "height": {
+                        type: "f",
+                        value: this.props.textureHeight
+                    },
+                    "opacity": {
+                        type: "f",
+                        value: 1.0
+                    }
+                },
+                extensions: {
+                    derivatives: true
+                },
+                vertexShader: rgbdVert,
+                fragmentShader: rgbdFrag,
+                transparent: true
+            });
+
+            //Make the shader material double sided
+            this._material.side = THREE.DoubleSide;
+        }
+    }, {
+        key: 'loadVideo',
+        value: function loadVideo(_src) {
+            this.video.src = _src;
+            this.video.load();
+        }
+    }, {
+        key: 'createVideoTexture',
+        value: function createVideoTexture() {
+            var videoTex = new THREE.VideoTexture(this.video);
+            videoTex.minFilter = THREE.NearestFilter;
+            videoTex.magFilter = THREE.LinearFilter;
+            videoTex.format = THREE.RGBFormat;
+            videoTex.generateMipmaps = false;
+
+            return videoTex;
+        }
+    }, {
+        key: 'load',
+        value: function load(_props, _movieUrl, _onComplete, _onError) {
+            var _this2 = this;
+
+            this.loadVideo(_movieUrl);
+
+            this.videoTexture = this.createVideoTexture();
+
+            if (this.isJson(_props)) {
+                var jsonProps = JSON.parse(_props);
+                this.setProps(jsonProps);
+                this.createMesh();
+
+                if (_onComplete) {
+                    _onComplete(this);
+                }
+            } else {
+                this.loadPropsFromFile(_props).then(function (props) {
+                    _this2.setProps(props);
+                    _this2.createMesh();
+
+                    if (_onComplete) {
+                        _onComplete(_this2);
+                    }
+                }).catch(function (err) {
+                    if (_onError) {
+                        _onError(err);
+                    } else {
+                        console.error(err);
+                    }
+                });
+            }
+        }
+    }, {
+        key: 'createMesh',
+        value: function createMesh() {
+            this.buildMaterial();
+            this.buildGeometry();
+            this.children[0].frustumCulled = false;
+            this.children[0].name = 'depthkit';
+        }
+    }, {
+        key: 'loadPropsFromFile',
+        value: function loadPropsFromFile(filePath) {
+            var _this3 = this;
+
+            return new Promise(function (resolve, reject) {
+                var jsonLoader = new THREE.FileLoader(_this3.manager);
+                jsonLoader.setResponseType('json');
+                jsonLoader.load(filePath, function (data) {
+                    resolve(data);
+                }, null, function (err) {
+                    reject(err);
+                });
+            });
+        }
+    }, {
+        key: 'isJson',
+        value: function isJson(item) {
+            item = typeof item !== "string" ? JSON.stringify(item) : item;
+
+            try {
+                item = JSON.parse(item);
+            } catch (e) {
+                return false;
+            }
+
+            if ((typeof item === 'undefined' ? 'undefined' : _typeof(item)) === "object" && item !== null) {
+                return true;
+            }
+
+            return false;
+        }
+    }, {
+        key: 'setProps',
+        value: function setProps(_props) {
+            this.props = _props;
+
+            if (this.props.textureWidth == undefined || this.props.textureHeight == undefined) {
+                this.props.textureWidth = this.props.depthImageSize.x;
+                this.props.textureHeight = this.props.depthImageSize.y * 2;
+            }
+            if (this.props.extrinsics == undefined) {
+                this.props.extrinsics = {
+                    e00: 1, e01: 0, e02: 0, e03: 0,
+                    e10: 0, e11: 1, e12: 0, e13: 0,
+                    e20: 0, e21: 0, e22: 1, e23: 0,
+                    e30: 0, e31: 0, e32: 0, e33: 1
+                };
+            }
+            if (this.props.crop == undefined) {
+                this.props.crop = { x: 0, y: 0, z: 1, w: 1 };
             }
         }
     }, {
         key: 'setOpacity',
         value: function setOpacity(opacity) {
-            this.material.uniforms.opacity.value = opacity;
-        }
-    }, {
-        key: 'setLineWidth',
-        value: function setLineWidth(width) {
-            if (this.material.wireframe) {
-                this.material.wireframeLinewidth = width;
-            } else {
-                console.warn('Can not set the line width because the current character is not set to render wireframe');
-            }
+            this._material.uniforms.opacity.value = opacity;
         }
 
         /*
@@ -296,12 +391,7 @@ var DepthKit = function () {
     }, {
         key: 'update',
         value: function update(time) {
-            this.material.uniforms.time.value = time;
-        }
-    }, {
-        key: 'toggleColliderVisiblity',
-        value: function toggleColliderVisiblity() {
-            this.mesh.collider.visible = !this.mesh.collider.visible;
+            this._material.uniforms.time.value = time;
         }
     }, {
         key: 'dispose',
@@ -320,30 +410,12 @@ var DepthKit = function () {
                 });
             }
         }
-    }], [{
-        key: 'buildGeomtery',
-        value: function buildGeomtery() {
-
-            DepthKit.geo = new THREE.Geometry();
-
-            for (var y = 0; y < VERTS_TALL; y++) {
-                for (var x = 0; x < VERTS_WIDE; x++) {
-                    DepthKit.geo.vertices.push(new THREE.Vector3(x, y, 0));
-                }
-            }
-            for (var _y = 0; _y < VERTS_TALL - 1; _y++) {
-                for (var _x2 = 0; _x2 < VERTS_WIDE - 1; _x2++) {
-                    DepthKit.geo.faces.push(new THREE.Face3(_x2 + _y * VERTS_WIDE, _x2 + (_y + 1) * VERTS_WIDE, _x2 + 1 + _y * VERTS_WIDE));
-                    DepthKit.geo.faces.push(new THREE.Face3(_x2 + 1 + _y * VERTS_WIDE, _x2 + (_y + 1) * VERTS_WIDE, _x2 + 1 + (_y + 1) * VERTS_WIDE));
-                }
-            }
-        }
     }]);
 
-    return DepthKit;
-}();
+    return Depthkit;
+}(THREE.Object3D);
 
-exports.default = DepthKit;
+exports.default = Depthkit;
 
 },{"glslify":1}],3:[function(require,module,exports){
 'use strict';
@@ -351,24 +423,663 @@ exports.default = DepthKit;
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.DepthKit = undefined;
+exports.VPTStream = exports.Depthkit = undefined;
 
-var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; //DepthKit.js class
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; //Depthkit.js class
 
 
 var _depthkit = require('./depthkit');
 
 var _depthkit2 = _interopRequireDefault(_depthkit);
 
+var _vptstream = require('./vptstream');
+
+var _vptstream2 = _interopRequireDefault(_vptstream);
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 //Make it global
 if (typeof window !== 'undefined' && _typeof(window.THREE) === 'object') {
-  window.DepthKit = _depthkit2.default;
+  window.Depthkit = _depthkit2.default;
+  window.VPTStream = _vptstream2.default;
+  window.STREAMEVENTS = _vptstream.STREAMEVENTS;
 } else {
-  console.warn('[DepthKit.js] It seems like THREE is not included in your code, try including it before DepthKit.js');
+  console.warn('[Depthkit.js] It seems like THREE is not included in your code, try including it before Depthkit.js');
 }
 
-exports.DepthKit = _depthkit2.default;
+exports.Depthkit = _depthkit2.default;
+exports.VPTStream = _vptstream2.default;
 
-},{"./depthkit":2}]},{},[3]);
+},{"./depthkit":2,"./vptstream":4}],4:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var glsl = require('glslify');
+
+var rgbdFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nvoid main() {\n\n    if( ptColor.a <= 0.0){\n        discard;\n    }\n\n    vec4 colorSample = ptColor;\n    colorSample.a *= (ptColor.a * opacity);\n\n    gl_FragColor = colorSample;\n}"]);
+var rgbdVert = glsl(["#define GLSLIFY 1\nuniform vec2 focalLength;//fx,fy\nuniform vec2 principalPoint;//ppx,ppy\nuniform vec2 imageDimensions;\nuniform mat4 extrinsics;\nuniform float width;\nuniform float height;\nuniform float scale;\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\nuniform vec3 thresholdMin;\nuniform vec3 thresholdMax;\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{       \n    vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\n//https://stackoverflow.com/questions/12751080/glsl-point-inside-box-test/37426532\nfloat insideBox3D(vec3 v, vec3 bottomLeft, vec3 topRight) {\n    vec3 s = step(bottomLeft, v) - step(topRight, v);\n    return s.x * s.y * s.z; \n}\n\nvoid main()\n{   \n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n    vec2 basetex = position.xy + vec2(0.5,0.5);\n\n    // we align our depth pixel centers with the center of each quad, so we do not require a half pixel offset\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5);\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5);\n\n    float depth = depthForPoint(depthTexCoord);\n    float mindepth = depthMin;\n    float maxdepth = depthMax;\n\n    float z = depth * (maxdepth - mindepth) + mindepth;\n    vec2 ortho = basetex * imageDimensions - principalPoint;\n    vec2 proj = ortho * z / focalLength;\n    vec4 worldPos = extrinsics *  vec4(proj.xy, z, 1.0);\n    worldPos.w = 1.0;\n\n    vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n    mvPosition = modelViewMatrix * mvPosition;\n    ptColor = texture2D(map, colorTexCoord);\n\n    ptColor.a = insideBox3D(worldPos.xyz, thresholdMin, thresholdMax ) > 0.0 && depth > 0.0 ? 1.0 : 0.0;\n\n    float rot = 3.14159;\n    mat4 flip = mat4(  vec4(-1.0,0.0,0.0,0.0),\n                        vec4(0.0,1.0,0.0,0.0),\n                        vec4(0.0,0.0,1.0,0.0),\n                        vec4(0.0,0.0,0.0,1.0));\n    \n    gl_Position = projectionMatrix * modelViewMatrix * flip * worldPos;\n    vUv = uv;\n    debug = vec3(1, 0.5, 0.0);\n\n    gl_PointSize = pointSize;\n    gl_PointSize *= ( scale / - mvPosition.z );\n\n}\n"]);
+
+var rgbdFrag_rs2 = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nvoid main() {\n\n    if( ptColor.a <= 0.0){\n        discard;\n    }\n\n    vec4 colorSample = ptColor;\n    colorSample.a *= (ptColor.a * opacity);\n\n    gl_FragColor = colorSample;\n}"]);
+var rgbdVert_rs2 = glsl(["#define GLSLIFY 1\nuniform vec2 focalLength;//fx,fy\nuniform vec2 principalPoint;//ppx,ppy\nuniform vec2 imageDimensions;\nuniform mat4 extrinsics;\n\nuniform float width;\nuniform float height;\nuniform float scale;\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\n\nuniform float min_disparity;\nuniform float max_disparity;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n#define DEPTH_UNITS 0.001\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat RGBtoD(vec3 c)\n{\n\t// conversion from RGB color to quantized depth value\n\tif ( (c.b + c.g + c.r) < 255.0)\n\t{\n\t\treturn 0.0;\n\t}\n\telse if (c.r >= c.g && c.r >= c.b)\n\t{\n\t\tif (c.g >= c.b)\n\t\t{\t\n\t\t\treturn c.g - c.b;\n\t\t}\n\t\telse\n\t\t{\n\t\t\treturn (c.g - c.b) + 1529.0;\n\t\t}\n\t}\n\telse if (c.g >= c.r && c.g >= c.b)\n\t{\n\t\treturn c.b - c.r + 510.0;\n\t}\n\telse if (c.b >= c.g && c.b >= c.r)\n    {\n\t\treturn c.r - c.g + 1020.0;\n\t}\n}\n\nfloat depthForPointHSV(vec2 texturePoint)\n{       \n     vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\nfloat depthForPointColorized(vec2 texturePoint)\n{       \n    vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    return RGBtoD(depthsample.rgb * 255.0);\n}\n\nvoid main()\n{   \n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n    vec2 basetex = position.xy + vec2(0.5,0.5);\n\n    // we align our depth pixel centers with the center of each quad, so we do not require a half pixel offset\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5);\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5);\n\n    //0 ... 1529\n    //float depth = depthForPointColorized(depthTexCoord);\n    //map to world coordinate\n    //float depthAdjusted = min_disparity + (max_disparity - min_disparity) * depth / 1535.0;\n\n    //deal with disparity\n    //float depthValue = ((1.0 / depthAdjusted) / DEPTH_UNITS) / 1000.0;\n    //float depthValue = ((depthAdjusted) / DEPTH_UNITS) / 1000.0;\n    //float depthValue = ((0.29 + (4.0 - 0.29) * depth / 1535.0) / DEPTH_UNITS + 0.5)/ 1000.0;\n\n    float depth = depthForPointHSV(depthTexCoord);\n    float mindepth = depthMin;\n    float maxdepth = depthMax;\n\n    float depthValue = depth * (maxdepth - mindepth) + mindepth;\n/*\n    vec2 pp = vec2(325.732, 244.086);\n    vec2 ff = vec2(609.178, 609.351);\n\n    float x = basetex.x * width;\n    float y = basetex.y * height;\n\n    x = depthValue * (x - pp.x) / ff.x * DEPTH_UNITS * 1000.0;    \n    y = depthValue * (y - pp.y) / ff.y * DEPTH_UNITS * 1000.0;\n    float z = depthValue * DEPTH_UNITS * 1000.0f; \n*/\n\n    float z = depth * (maxdepth - mindepth) + mindepth;\n    vec2 ortho = basetex * imageDimensions - principalPoint;\n    vec2 proj = ortho * z / focalLength;\n    vec4 worldPos = extrinsics *  vec4(proj.xy, z, 1.0);\n      \n    worldPos.w = 1.0;\n\n    vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n    mvPosition = modelViewMatrix * mvPosition;\n\n    ptColor = texture2D(map, colorTexCoord);\n    ptColor.a = z < 0.1 || z > 4.0 || depth <= 0.0 ? 0.0 : 1.0;\n\n    gl_Position = projectionMatrix * modelViewMatrix * worldPos;\n    vUv = uv;\n    debug = vec3(1, 0.5, 0.0);\n\n    gl_PointSize = pointSize;\n    gl_PointSize *= ( scale / - mvPosition.z );\n\n}\n"]);
+
+var orthoFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\nuniform float depthMin;\nuniform float depthMax;\nuniform vec3 thresholdMin;\nuniform vec3 thresholdMax;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.6; //a given pixel whose brightness is less than half will be culled (old default was .9)\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.g > _DepthSaturationThreshhold && depthsamplehsv.b > _DepthBrightnessThreshold ? depthsamplehsv.r : 0.0;\n}\n\nvoid main() {\n\n  /*float verticalScale = 480.0 / 720.0;\n  float verticalOffset = 1.0 - verticalScale;\n  vec2 colorUv = vUv * vec2(0.5, verticalScale) + vec2(0, verticalOffset);\n  vec2 depthUv = colorUv + vec2(0.5, 0.0);*/\n\n    float verticalScale = 0.5;//480.0 / 720.0;\n    float verticalOffset = 1.0 - verticalScale;\n\n    vec2 colorUv = vUv * vec2(1.0, verticalScale) + vec2(0.0, 0.5);\n    vec2 depthUv = colorUv - vec2(0.0, 0.5);\n\n    vec4 colorSample = ptColor;// texture2D(map, colorUv); \n    vec4 depthSample = texture2D(map, depthUv); \n\n    vec3 hsv = rgb2hsv(depthSample.rgb);\n    float depth = hsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? hsv.r : 0.0;\n    float z = depth * (depthMax - depthMin) + depthMin;\n    float alpha = depth > 0.0 && z > thresholdMin.z && z < thresholdMax.z ? 1.0 : 0.0;\n\n    if(alpha <= 0.0) {\n      discard;\n    }\n\n    colorSample.a *= (alpha * opacity);\n\n    gl_FragColor = colorSample;//vec4(debug, 1);\n}"]);
+var orthoVert = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\nuniform vec3 thresholdMin;\nuniform vec3 thresholdMax;\nuniform float scale;\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n//https://github.com/tobspr/GLSL-Color-Spaces/blob/master/ColorSpaces.inc.glsl\nconst float SRGB_GAMMA = 1.0 / 2.2;\nconst float SRGB_INVERSE_GAMMA = 2.2;\nconst float SRGB_ALPHA = 0.055;\n\n// Converts a single srgb channel to rgb\nfloat srgb_to_linear(float channel) {\n  if (channel <= 0.04045)\n      return channel / 12.92;\n  else\n      return pow((channel + SRGB_ALPHA) / (1.0 + SRGB_ALPHA), 2.4);\n}\n\n// Converts a srgb color to a linear rgb color (exact, not approximated)\nvec3 srgb_to_rgb(vec3 srgb) {\n  return vec3(\n      srgb_to_linear(srgb.r),\n      srgb_to_linear(srgb.g),\n      srgb_to_linear(srgb.b)\n  );\n}\n\n//faster but noisier\nvec3 srgb_to_rgb_approx(vec3 srgb) {\nreturn pow(srgb, vec3(SRGB_INVERSE_GAMMA));\n}\n\nvec3 rgb2hsv(vec3 c)\n{\n  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n\n  float d = q.x - min(q.w, q.y);\n  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + _Epsilon)), d / (q.x + _Epsilon), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{\n  vec4 depthsample = texture2D(map, texturePoint);\n  vec3 linear = srgb_to_rgb( depthsample.rgb);\n  vec3 depthsamplehsv = rgb2hsv(linear.rgb);\n  return depthsamplehsv.g > _DepthSaturationThreshhold && depthsamplehsv.b > _DepthBrightnessThreshold ? depthsamplehsv.r : 0.0;\n}\n\nvoid main()\n{\n  float mindepth = depthMin;\n  float maxdepth = depthMax;\n\n  float verticalScale = 0.5;//480.0 / 720.0;\n  float verticalOffset = 1.0 - verticalScale;\n\n  vec2 colorUv = uv * vec2(1.0, verticalScale) + vec2(0.0, 0.5);\n  vec2 depthUv = colorUv - vec2(0.0, 0.5);\n\n  float depth = depthForPoint(depthUv);\n\n  float z = depth * (maxdepth - mindepth) + mindepth;\n  \n  vec4 worldPos = vec4(position.xy, -z, 1.0);\n  worldPos.w = 1.0;\n\n  vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n  mvPosition = modelViewMatrix * mvPosition;\n\n  ptColor = texture2D(map, colorUv);\n\n  gl_Position = projectionMatrix * modelViewMatrix * worldPos;\n  vUv = uv;\n  debug = vec3(1, 0.5, 0.0);\n  \n  gl_PointSize = pointSize;\n  gl_PointSize *= ( scale / - mvPosition.z );\n\n  //gl_Position =  projectionMatrix * modelViewMatrix * vec4(position,1.0);\n}"]);
+
+var cutoutFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\nuniform float depthMin;\nuniform float depthMax;\nuniform vec3 thresholdMin;\nuniform vec3 thresholdMax;\n\nvarying vec2 vUv;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.4; //a given pixel whose brightness is less than half will be culled (old default was .9)\n\nvec3 rgb2hsv(vec3 c)\n{\n  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n  float d = q.x - min(q.w, q.y);\n  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nvoid main() {\n\n  float verticalScale = 0.5;//480.0 / 720.0;\n  float verticalOffset = 1.0 - verticalScale;\n\n  vec2 colorUv = vUv * vec2(1.0, verticalScale) + vec2(0.0, 0.5);\n  vec2 depthUv = colorUv - vec2(0.0, 0.5);\n\n  vec4 colorSample = texture2D(map, colorUv); \n  vec4 depthSample = texture2D(map, depthUv); \n\n  vec3 hsv = rgb2hsv(depthSample.rgb);\n  float depth = hsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? hsv.r : 0.0;\n  float z = depth * (depthMax - depthMin) + depthMin;\n  float alpha = depth > 0.0 && z > thresholdMin.z && z < thresholdMax.z ? 1.0 : 0.0;\n\n  if(alpha <= 0.0) {\n    discard;\n  }\n\n  colorSample.a *= (alpha * opacity);\n\n  gl_FragColor = colorSample;\n}"]);
+var cutoutVert = glsl(["#define GLSLIFY 1\nvarying vec2 vUv;\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\nuniform float scale;\nuniform vec3 thresholdMin;\nuniform vec3 thresholdMax;\n\nvoid main()\n{\n  vUv = uv;\n  gl_Position =  projectionMatrix * modelViewMatrix * vec4(position,1.0);\n}"]);
+
+var HLS_TIMEOUT = 2500;
+
+var schema = {
+  videoPath: { type: 'string' },
+  meta: { type: 'object', defaults: {} },
+  startat: { type: 'number', default: 0 },
+  renderMode: { type: 'string', default: 'perspective' },
+  depthMin: { type: 'number', default: 0.0 },
+  depthMax: { type: 'number', default: 3.0 },
+  pointSize: { type: 'number', default: 8.0 },
+  scale: { type: 'number', default: 1.0 },
+  textureSize: { type: 'vec2', default: { w: 320, h: 240 } },
+  thresholdMin: { type: 'vec3', default: { x: -2.0, y: -2.0, z: 0.0 } },
+  thresholdMax: { type: 'vec3', default: { x: 2.0, y: 2.0, z: 4.0 } }
+};
+
+var STREAMEVENTS = exports.STREAMEVENTS = Object.freeze({
+  PLAY_SUCCESS: "PLAY_SUCCESS",
+  PLAY_ERROR: "PLAY_ERROR",
+  LOAD_ERROR: "LOAD_ERROR",
+  NETWORK_ERROR: "NETWORK_ERROR",
+  MEDIA_ERROR: "MEDIA_ERROR",
+  HLS_ERROR: "HLS_ERROR"
+});
+
+//Volumetric Performance Toolbox streaming player
+
+var VPTStream = function (_THREE$Object3D) {
+  _inherits(VPTStream, _THREE$Object3D);
+
+  function VPTStream() {
+    _classCallCheck(this, VPTStream);
+
+    var _this2 = _possibleConstructorReturn(this, (VPTStream.__proto__ || Object.getPrototypeOf(VPTStream)).call(this));
+
+    _this2.video = _this2.createVideoEl();
+    _this2.texture = new THREE.VideoTexture(_this2.video);
+    _this2.texture.minFilter = THREE.NearestFilter;
+    _this2.texture.magFilter = THREE.LinearFilter;
+    _this2.texture.format = THREE.RGBFormat;
+    _this2.hls = null;
+
+    //When using vptstream in mozilla hubs/spoke we run into issues with the proxy / cors setup and the way Hls resolves urls.
+    //Hack copied from her: https://github.com/mozilla/hubs/blob/584e48ad0ccc0da1fc9781e7686d19431a2340cd/src/components/media-views.js#L773
+    //the function params / signature is (xhr, u)  
+    _this2.hls_xhroverride = null;
+
+    _this2.loadTime = 0;
+    _this2.playing = false;
+    _this2.meshScalar = 2;
+    _this2.params = {};
+    return _this2;
+  }
+
+  _createClass(VPTStream, [{
+    key: 'updateParameter',
+    value: function updateParameter(param, value) {
+
+      if (param == "startat") {
+        this.video.currentTime = value;
+      } else {
+        if (this.material) {
+          this.material.uniforms[param].value = value;
+        }
+      }
+    }
+  }, {
+    key: 'load',
+    value: function load(params) {
+      console.log("vptstream load");
+
+      for (var property in schema) {
+        console.log(property + ' value:' + params[property] + ' default:' + schema[property].default);
+        this.params[property] = params.hasOwnProperty(property) ? params[property] : schema[property].default;
+      }
+
+      if (this.params.meta.hasOwnProperty("depthFocalLength")) {
+        this.setProps(this.params.meta);
+      } else {
+        console.error("invalid meta data for perspective rendering, default to cutout");
+        this.params.renderMode = "cutout";
+      }
+
+      if (this.material) {
+        console.log("Material exists, dispose");
+        this.material.dispose();
+        var child = this.getObjectByName("VolumetricVideo");
+        if (child) {
+          console.log("VolumetricVideo exists, remove");
+          this.remove(child);
+        }
+      }
+
+      this.startVideo(this.params.videoPath);
+
+      var geometry = new THREE.PlaneBufferGeometry(1, 1, this.params.textureSize.w, this.params.textureSize.h);
+
+      switch (this.params.renderMode) {
+
+        case "ortho":
+          this.material = new THREE.ShaderMaterial({
+            uniforms: {
+              "map": {
+                type: "t",
+                value: this.texture
+              },
+              "time": {
+                type: "f",
+                value: 0.0
+              },
+              "opacity": {
+                type: "f",
+                value: 1.0
+              },
+              "pointSize": {
+                type: "f",
+                value: this.params.pointSize
+              },
+              "depthMin": {
+                type: "f",
+                value: this.params.depthMin
+              },
+              "depthMax": {
+                type: "f",
+                value: this.params.depthMax
+              },
+              "thresholdMin": {
+                value: this.params.thresholdMin
+              },
+              "thresholdMax": {
+                value: this.params.thresholdMax
+              },
+              "scale": {
+                value: this.params.scale
+              },
+              extensions: {
+                derivatives: true
+              }
+            },
+            side: THREE.DoubleSide,
+            vertexShader: orthoVert,
+            fragmentShader: orthoFrag,
+            transparent: true
+            //depthWrite:falses
+          });
+
+          var pointsO = new THREE.Points(geometry, this.material);
+          pointsO.position.y = 1;
+          pointsO.name = "VolumetricVideo";
+          this.add(pointsO);
+          break;
+
+        case "cutout":
+          this.material = new THREE.ShaderMaterial({
+            uniforms: {
+              "map": {
+                type: "t",
+                value: this.texture
+              },
+              "time": {
+                type: "f",
+                value: 0.0
+              },
+              "opacity": {
+                type: "f",
+                value: 1.0
+              },
+              "depthMin": {
+                type: "f",
+                value: this.params.depthMin
+              },
+              "depthMax": {
+                type: "f",
+                value: this.params.depthMax
+              },
+              "thresholdMin": {
+                value: this.params.thresholdMin
+              },
+              "thresholdMax": {
+                value: this.params.thresholdMax
+              },
+              "scale": {
+                value: this.params.scale
+              },
+              extensions: {
+                derivatives: true
+              }
+            },
+            side: THREE.DoubleSide,
+            vertexShader: cutoutVert,
+            fragmentShader: cutoutFrag,
+            transparent: true
+          });
+
+          var plane = new THREE.Mesh(geometry, this.material);
+          plane.position.y = 1;
+          plane.scale.set(this.params.textureSize.w / this.params.textureSize.h, 1.0, 1.0);
+          plane.name = "VolumetricVideo";
+
+          this.add(plane);
+          break;
+
+        case "perspective":
+
+          //so far we have not had to use custom extrinsice for Azure Kinect or Realsense
+          //default could suffice as the alignment is done upstream, when we grab if from the sensor
+          //leaving this here to allow for textures that still need alignment 
+          var extrinsics = new THREE.Matrix4();
+          var ex = this.props.extrinsics;
+          extrinsics.set(ex["e00"], ex["e10"], ex["e20"], ex["e30"], ex["e01"], ex["e11"], ex["e21"], ex["e31"], ex["e02"], ex["e12"], ex["e22"], ex["e32"], ex["e03"], ex["e13"], ex["e23"], ex["e33"]);
+
+          //Material
+          this.material = new THREE.ShaderMaterial({
+            uniforms: {
+              "map": {
+                type: "t",
+                value: this.texture
+              },
+              "pointSize": {
+                type: "f",
+                value: this.params.pointSize
+              },
+              "depthMin": {
+                type: "f",
+                value: this.params.depthMin
+              },
+              "depthMax": {
+                type: "f",
+                value: this.params.depthMax
+              },
+              "scale": {
+                value: this.params.scale
+              },
+              "focalLength": {
+                value: this.props.depthFocalLength
+              },
+              "principalPoint": {
+                value: this.props.depthPrincipalPoint
+              },
+              "imageDimensions": {
+                value: this.props.depthImageSize
+              },
+              "width": {
+                value: this.props.textureWidth
+              },
+              "height": {
+                value: this.props.textureHeight
+              },
+              "thresholdMin": {
+                value: this.params.thresholdMin
+              },
+              "thresholdMax": {
+                value: this.params.thresholdMax
+              },
+              "extrinsics": {
+                value: extrinsics
+              },
+              "opacity": {
+                type: "f",
+                value: 1.0
+              }
+            },
+            extensions: {
+              derivatives: true
+            },
+            vertexShader: rgbdVert,
+            fragmentShader: rgbdFrag,
+            transparent: true
+          });
+
+          //Make the shader material double sided
+          this.material.side = THREE.DoubleSide;
+
+          var pointP = new THREE.Points(geometry, this.material);
+          pointP.name = "VolumetricVideo";
+          pointP.position.y = 1;
+          this.add(pointP);
+          break;
+
+        /*
+        case "perspective_rl":
+         
+            //so far we have not had to use custom extrinsice for Azure Kinect or Realsense
+            //default could suffice as the alignment is done upstream, when we grab if from the sensor
+            //leaving this here to allow for textures that still need alignment 
+            const extrinsics = new THREE.Matrix4();
+            const ex = this.props.extrinsics;
+            extrinsics.set(
+              ex["e00"], ex["e10"], ex["e20"], ex["e30"],
+              ex["e01"], ex["e11"], ex["e21"], ex["e31"],
+              ex["e02"], ex["e12"], ex["e22"], ex["e32"],
+              ex["e03"], ex["e13"], ex["e23"], ex["e33"]
+            );
+               const extrinsicsInv = new THREE.Matrix4();
+            extrinsicsInv.getInverse(extrinsics);
+               const  min_disparity = 1.0 / 4.0;
+            const  max_disparity = 1.0 / 0.29;
+             
+            //Material
+            this.material = new THREE.ShaderMaterial({
+              uniforms: {
+                "map": {
+                  type: "t",
+                  value: this.texture
+                },
+                "pointSize": {
+                  type: "f",
+                  value: this.params.pointSize
+                },
+                "depthMin": {
+                  type: "f",
+                  value: this.params.depthMin
+                },
+                "depthMax": {
+                  type: "f",
+                  value: this.params.depthMax
+                },
+                "scale": {
+                  value: this.params.scale
+                },
+                "min_disparity": {
+                  type: "f",
+                  value: min_disparity
+                },
+                "max_disparity": {
+                  value: max_disparity
+                },
+                 "focalLength": {
+                  value: this.props.depthFocalLength
+                },
+                "principalPoint": {
+                  value: this.props.depthPrincipalPoint
+                },
+                "imageDimensions": {
+                  value: this.props.depthImageSize
+                },
+                "width":{
+                  value: this.props.textureWidth
+                },
+                "height":{
+                  value: this.props.textureHeight
+                },
+                "extrinsics": {
+                  value: extrinsics
+                },              
+                "opacity": {
+                  type: "f",
+                  value: 1.0
+                }
+              },
+              extensions:
+              {
+                derivatives: true,
+              },
+              vertexShader: rgbdVert_rs2,
+              fragmentShader: rgbdFrag_rs2,
+              transparent: true
+            });
+               //Make the shader material double sided
+            this.material.side = THREE.DoubleSide;
+            
+            let pointP = new THREE.Points(geometry, this.material);
+            pointP.name = "VolumetricVideo";
+            pointP.position.y = 1;
+            this.add(pointP);
+            break;
+            */
+      }
+    }
+
+    //load depth camera properties for perspective reprojection
+
+  }, {
+    key: 'loadPropsFromFile',
+    value: function loadPropsFromFile(filePath) {
+      var _this3 = this;
+
+      return new Promise(function (resolve, reject) {
+        var jsonLoader = new THREE.FileLoader(_this3.manager);
+        jsonLoader.setResponseType('json');
+        jsonLoader.load(filePath, function (data) {
+          resolve(data);
+        }, null, function (err) {
+          reject(err);
+        });
+      });
+    }
+
+    //set perspective projection properties
+
+  }, {
+    key: 'setProps',
+    value: function setProps(_props) {
+      this.props = _props;
+      if (this.props.textureWidth == undefined || this.props.textureHeight == undefined) {
+        this.props.textureWidth = this.props.depthImageSize.x;
+        this.props.textureHeight = this.props.depthImageSize.y * 2;
+      }
+      if (this.props.extrinsics == undefined) {
+        this.props.extrinsics = {
+          e00: 1, e01: 0, e02: 0, e03: 0,
+          e10: 0, e11: 1, e12: 0, e13: 0,
+          e20: 0, e21: 0, e22: 1, e23: 0,
+          e30: 0, e31: 0, e32: 0, e33: 1
+        };
+      }
+      if (this.props.crop == undefined) {
+        this.props.crop = { x: 0, y: 0, z: 1, w: 1 };
+      }
+    }
+  }, {
+    key: 'play',
+    value: function play() {
+      this.video.play().then(function () {
+        this.dispatchEvent({ type: STREAMEVENTS.PLAY_SUCCESS, message: "autoplay success" });
+        this.playing = true;
+      }).catch(function (error) {
+        this.dispatchEvent({ type: STREAMEVENTS.PLAY_ERROR, message: "autoplay error" });
+        this.playing = false;
+      });
+
+      return this.playing;
+    }
+  }, {
+    key: 'stop',
+    value: function stop() {
+      this.video.stop();
+    }
+  }, {
+    key: 'pause',
+    value: function pause() {}
+  }, {
+    key: 'setVolume',
+    value: function setVolume(volume) {
+      this.video.volume = volume;
+    }
+  }, {
+    key: 'update',
+    value: function update(time) {
+      this._material.uniforms.time.value = time;
+    }
+  }, {
+    key: 'createVideoEl',
+    value: function createVideoEl() {
+      var el = document.createElement("video");
+
+      el.setAttribute("id", "volumetric-stream-video");
+
+      el.setAttribute("playsinline", "");
+      el.setAttribute("webkit-playsinline", "");
+      // iOS Safari requires the autoplay attribute, or it won't play the video at all.
+      el.autoplay = true;
+      // iOS Safari will not play videos without user interaction. We mute the video so that it can autoplay and then
+      // allow the user to unmute it with an interaction in the unmute-video-button component.
+      el.muted = false;
+      el.preload = "auto";
+      el.crossOrigin = "anonymous";
+
+      console.log("Volumetric Stream: Video element created", el);
+
+      return el;
+    }
+  }, {
+    key: 'scaleToAspectRatio',
+    value: function scaleToAspectRatio(el, ratio) {
+      var width = Math.min(1.0, 1.0 / ratio);
+      var height = Math.min(1.0, ratio);
+      el.object3DMap.mesh.scale.set(width, height, 1);
+      el.object3DMap.mesh.matrixNeedsUpdate = true;
+    }
+  }, {
+    key: 'dispose',
+    value: function dispose() {
+      if (this.texture.image instanceof HTMLVideoElement) {
+        var video = this.texture.image;
+        video.pause();
+        video.src = "";
+        video.load();
+      }
+
+      if (this.hls) {
+        this.hls.stopLoad();
+        this.hls.detachMedia();
+        this.hls.destroy();
+        this.hls = null;
+      }
+
+      this.texture.dispose();
+      this.material.dispose();
+    }
+  }, {
+    key: 'setVideoUrl',
+    value: function setVideoUrl(videoUrl) {
+      if (this.hls) {
+        this.startVideo(videoUrl);
+      }
+    }
+  }, {
+    key: 'startVideo',
+    value: function startVideo(videoUrl) {
+      var _this4 = this;
+
+      console.log("startVideo " + videoUrl);
+
+      if (Hls.isSupported()) {
+
+        var baseUrl = videoUrl;
+
+        var setupHls = function setupHls() {
+          if (_this4.hls) {
+            _this4.hls.stopLoad();
+            _this4.hls.detachMedia();
+            _this4.hls.destroy();
+            _this4.hls = null;
+          }
+
+          //do we need to hook / override Hls xhr calls to handle cors proxying
+          if (_this4.hls_xhroverride) {
+            _this4.hls = new Hls({
+              xhrSetup: _this4.hls_xhroverride
+            });
+          } else {
+            _this4.hls = new Hls();
+          }
+          _this4.hls.loadSource(videoUrl);
+          _this4.hls.attachMedia(_this4.video);
+
+          _this4.hls.on(Hls.Events.ERROR, function (event, data) {
+            if (data.fatal) {
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  //console.log("NETWORK_ERROR", data )
+                  _this4.dispatchEvent({ type: STREAMEVENTS.NETWORK_ERROR, message: data.message });
+                  // try to recover network error
+                  _this4.hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  //console.log("MEDIA_ERROR", data )
+                  _this4.dispatchEvent({ type: STREAMEVENTS.MEDIA_ERROR, message: data.message });
+                  _this4.hls.recoverMediaError();
+                  break;
+                default:
+                  //console.log("Hls ERROR", data )
+                  _this4.dispatchEvent({ type: STREAMEVENTS.HLS_ERROR, message: 'hls error ' + data.type + ' ' + data.message });
+                  return;
+              }
+            } else {
+              console.log("Hls non fatar error:", data);
+              if (data.type == Hls.ErrorTypes.MEDIA_ERROR) {
+                //this.hls.recoverMediaError();
+              }
+            }
+          });
+
+          _this4.hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
+            _this4.loadTime = performance.now();
+            var _this = _this4;
+            _this4.video.play().then(function () {
+              console.log("Hls success auto playing " + _this.params.startat);
+              _this.video.currentTime = _this.params.startat;
+              _this.dispatchEvent({ type: STREAMEVENTS.PLAY_SUCCESS, message: "autoplay success" });
+              _this.playing = true;
+            }).catch(function (error) {
+              //console.log("Hls error trying to auto play " + error + " " + error.name);
+              _this.dispatchEvent({ type: STREAMEVENTS.PLAY_ERROR, message: "error trying to auto play " + error + " " + error.name });
+              _this.playing = false;
+            });
+          });
+        };
+
+        setupHls();
+      } else if (this.video.canPlayType(contentType)) {
+        this.video.src = videoUrl;
+        this.video.onerror = failLoad;
+
+        this.video.play().then(function () {
+          this.dispatchEvent({ type: STREAMEVENTS.PLAY_SUCCESS, message: "autoplay success" });
+        }).catch(function (error) {
+          this.dispatchEvent({ type: STREAMEVENTS.PLAY_ERROR, message: "autoplay error" });
+          console.log("error autoplay", data);
+        });
+      } else {
+        console.log("Hls unsupported, can't load or play");
+        this.dispatchEvent({ type: STREAMEVENTS.LOAD_ERROR, message: "Hls unsupported, can't play media" });
+      }
+    }
+  }, {
+    key: 'LoadTime',
+    get: function get() {
+      return this.loadTime;
+    }
+  }, {
+    key: 'Playing',
+    get: function get() {
+      return this.playing;
+    }
+  }]);
+
+  return VPTStream;
+}(THREE.Object3D);
+
+exports.default = VPTStream;
+
+},{"glslify":1}]},{},[3]);
